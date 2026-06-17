@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>PK AUSA WFS</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#f5f5f5; }
+    #root { display:flex; flex-direction:column; height:100vh; }
+    #header { background:#0d1526; color:#fff; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 2px 8px rgba(0,0,0,0.1); z-index:999; }
+    #header-logo { display:flex; align-items:center; gap:8px; font-weight:700; font-size:16px; }
+    #header-logo img { height:32px; }
+    #header-title { color:#ffc107; font-size:14px; font-weight:700; letter-spacing:0.1em; }
+    #map { flex:1; width:100%; position:relative; }
+
+    #gps-btn { position:fixed; bottom:230px; right:14px; z-index:1000; width:48px; height:48px; border-radius:50%; background:#fff; border:none; color:#0066ff; font-size:20px; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 12px rgba(0,0,0,0.25); -webkit-tap-highlight-color:transparent; transition:transform 0.1s; }
+    #gps-btn:active { transform:scale(0.92); }
+    #gps-btn.locating { animation:pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{box-shadow:0 2px 12px rgba(0,0,0,0.25)} 50%{box-shadow:0 2px 20px rgba(0,102,255,0.5)} }
+
+    #popup-panel { position:absolute; bottom:0; left:0; right:0; z-index:1000; background:#fff; border-top:1px solid #e0e0e0; border-radius:20px 20px 0 0; padding:0 20px 36px; transform:translateY(100%); transition:transform 0.3s cubic-bezier(0.4,0,0.2,1); box-shadow:0 -4px 24px rgba(0,0,0,0.12); }
+    #popup-panel.visible { transform:translateY(0); }
+    #popup-handle { width:36px; height:4px; background:#e0e0e0; border-radius:2px; margin:12px auto 16px; }
+    #popup-close { position:absolute; top:14px; right:18px; background:none; border:none; color:#999; font-size:24px; cursor:pointer; padding:4px; line-height:1; -webkit-tap-highlight-color:transparent; }
+    #pk-value { font-size:38px; font-weight:800; color:#0066ff; letter-spacing:0.02em; margin-bottom:2px; }
+    #pk-label { font-size:11px; text-transform:uppercase; letter-spacing:0.12em; color:#999; margin-bottom:16px; }
+    .info-row { display:flex; align-items:flex-start; gap:12px; padding:10px 0; border-bottom:1px solid #f0f0f0; }
+    .info-row:last-child { border-bottom:none; }
+    .info-icon { font-size:18px; width:26px; flex-shrink:0; margin-top:1px; }
+    .info-label { font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:#999; margin-bottom:2px; }
+    .info-value { font-size:15px; font-weight:600; color:#1a1a2e; }
+
+    #status { position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:999; background:rgba(0,0,0,0.7); border-radius:20px; padding:6px 14px; font-size:12px; color:#fff; white-space:nowrap; pointer-events:none; opacity:0; transition:opacity 0.3s; }
+    #status.visible { opacity:1; }
+
+    .leaflet-popup { display:none !important; }
+    .leaflet-control-container { display:none !important; }
+
+    /* Zoom buttons */
+    #zoom-buttons {
+      position:fixed;
+      right:14px;
+      bottom:120px;
+      display:flex;
+      flex-direction:column;
+      border-radius:8px;
+      overflow:hidden;
+      box-shadow:0 2px 14px rgba(0,0,0,0.25);
+      z-index:1000;
+      background:#fff;
+    }
+    #zoom-buttons button {
+      width:48px; height:48px;
+      background:#fff;
+      color:#0066ff;
+      border:none;
+      font-size:28px;
+      font-weight:700;
+      line-height:1;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      -webkit-tap-highlight-color:transparent;
+      padding:0;
+      transition:background 0.1s;
+    }
+    #zoom-in { border-bottom:1px solid #e0e0e0; }
+    #zoom-buttons button:hover { background:#f5f9ff; }
+    #zoom-buttons button:active { background:#f0f4ff; }
+
+    #zoom-indicator-side {
+      position:fixed;
+      right:14px;
+      bottom:72px;
+      background:#fff;
+      border-radius:8px;
+      padding:8px;
+      width:48px;
+      text-align:center;
+      font-size:16px;
+      font-weight:700;
+      color:#0066ff;
+      box-shadow:0 2px 14px rgba(0,0,0,0.25);
+      pointer-events:none;
+      z-index:1000;
+    }
+  </style>
+</head>
+<body>
+<div id="root">
+  <div id="header">
+    <div id="header-logo">
+      <svg width="32" height="32" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100" height="100" fill="#0066ff" rx="8"/>
+        <text x="50" y="65" font-size="48" font-weight="bold" fill="#fff" text-anchor="middle" font-family="Arial">A</text>
+      </svg>
+      <span>ausa</span>
+    </div>
+    <div id="header-title">PROGRESIVAS</div>
+  </div>
+
+  <div id="map">
+    <div id="status"></div>
+    <button id="gps-btn" title="Mi ubicación">📍</button>
+    <div id="zoom-buttons">
+      <button id="zoom-in" title="Zoom in">+</button>
+      <button id="zoom-out" title="Zoom out">−</button>
+    </div>
+    <div id="zoom-indicator-side">—</div>
+
+    <div id="popup-panel">
+      <div id="popup-handle"></div>
+      <button id="popup-close">×</button>
+      <div id="pk-value">—</div>
+      <div id="pk-label">Progresiva</div>
+      <div class="info-row">
+        <div class="info-icon">🛣️</div>
+        <div class="info-content">
+          <div class="info-label">Autopista</div>
+          <div class="info-value" id="info-tramo">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const BLUE = '#0066ff';
+const GEOSERVER_WFS = 'https://maps.ausa.com.ar/geoserver/ausa/wfs';
+
+const map = L.map('map', { 
+  center:[-34.65,-58.45], 
+  zoom:11, 
+  zoomControl:true, 
+  attributionControl:false, 
+  preferCanvas:true 
+});
+
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+  attribution:'© Esri',
+  maxZoom:19
+}).addTo(map);
+
+let currentZoom = map.getZoom();
+const allMarkers = [];
+let selectedMarker = null;
+let locMarker, locCircle;
+const statusEl = document.getElementById('status');
+
+// Circle styles
+const CIRCLE_STYLE = {
+  small: { radius:4, color:BLUE, fillColor:BLUE, fillOpacity:1, weight:0 },
+  medium: { radius:6, color:BLUE, fillColor:BLUE, fillOpacity:1, weight:0 },
+  large: { radius:8, color:BLUE, fillColor:BLUE, fillOpacity:1, weight:2, color:'#fff' },
+  selected: { radius:11, color:'#fff', fillColor:'#003388', fillOpacity:1, weight:3 }
+};
+
+function createMarker(latlng, properties) {
+  const m = L.circleMarker(latlng, CIRCLE_STYLE.medium);
+  
+  m.on('click', (e) => {
+    e.stopPropagation();
+    if (selectedMarker) {
+      selectedMarker.setStyle(CIRCLE_STYLE.medium);
+    }
+    selectedMarker = m;
+    m.setStyle(CIRCLE_STYLE.selected);
+    showPanel(properties);
+  });
+
+  m.addTo(map);
+  m.bringToFront();
+  allMarkers.push({ marker: m, properties });
+}
+
+function clearMarkers() {
+  allMarkers.forEach(({marker}) => map.removeLayer(marker));
+  allMarkers.length = 0;
+}
+
+// Fetch WFS data for current bbox
+function fetchWFSData() {
+  const bounds = map.getBounds();
+  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
+  const url = `${GEOSERVER_WFS}?service=WFS&version=2.0.0&request=GetFeature&typeName=ausa:v_progresivas_mobile_point&outputFormat=application/json&bbox=${bbox}`;
+  
+  statusEl.textContent = 'Cargando...';
+  statusEl.classList.add('visible');
+  
+  fetch(url)
+    .then(res => res.json())
+    .then(data => {
+      clearMarkers();
+      if (data.features) {
+        data.features.forEach(feature => {
+          const props = feature.properties;
+          const coords = feature.geometry.coordinates;
+          createMarker([coords[1], coords[0]], props);
+        });
+        statusEl.textContent = `${data.features.length} PKs cargados`;
+      }
+      setTimeout(() => statusEl.classList.remove('visible'), 2000);
+    })
+    .catch(err => {
+      console.error('WFS error:', err);
+      statusEl.textContent = 'Error cargando datos';
+      setTimeout(() => statusEl.classList.remove('visible'), 3000);
+    });
+}
+
+function updateZoom() {
+  currentZoom = map.getZoom();
+  document.getElementById('zoom-indicator-side').textContent = currentZoom;
+  fetchWFSData();
+}
+
+map.on('zoomend', () => { updateZoom(); closePanel(); });
+map.on('moveend', updateZoom);
+map.whenReady(updateZoom);
+
+// Panel
+const panel = document.getElementById('popup-panel');
+
+function closePanel() {
+  panel.classList.remove('visible');
+  if (selectedMarker) {
+    selectedMarker.setStyle(CIRCLE_STYLE.medium);
+    selectedMarker = null;
+  }
+}
+
+document.getElementById('popup-close').onclick = closePanel;
+map.on('click', closePanel);
+
+function showPanel(p) {
+  document.getElementById('pk-value').textContent = p.pk;
+  document.getElementById('info-tramo').textContent = p.nom_tramo;
+  panel.classList.add('visible');
+}
+
+// GPS
+document.getElementById('gps-btn').addEventListener('click', function() {
+  this.classList.add('locating');
+  statusEl.textContent = 'Buscando ubicación...';
+  statusEl.classList.add('visible');
+  
+  navigator.geolocation.getCurrentPosition(pos => {
+    const {latitude:lat, longitude:lng} = pos.coords;
+    if(locMarker) map.removeLayer(locMarker);
+    if(locCircle) map.removeLayer(locCircle);
+    
+    const locIcon = L.divIcon({
+      html: `<svg width="32" height="50" viewBox="0 0 32 50" xmlns="http://www.w3.org/2000/svg">
+        <line x1="16" y1="20" x2="16" y2="50" stroke="#D8A8A8" stroke-width="3" stroke-linecap="round"/>
+        <circle cx="16" cy="12" r="10" fill="#E8C8C8" stroke="#D8A8A8" stroke-width="2"/>
+      </svg>`,
+      iconSize: [32, 50],
+      iconAnchor: [16, 50],
+      className: 'loc-lollipop'
+    });
+    locCircle = L.marker([lat,lng], {icon: locIcon}).addTo(map);
+    map.flyTo([lat,lng], 17, { animate:true, duration:1.8, easeLinearity:0.25 });
+    this.classList.remove('locating');
+    statusEl.classList.remove('visible');
+  }, () => {
+    this.classList.remove('locating');
+    statusEl.textContent = 'No se pudo obtener ubicación';
+    setTimeout(() => statusEl.classList.remove('visible'), 3000);
+  }, {enableHighAccuracy:true, timeout:10000});
+});
+
+// Zoom buttons
+document.getElementById('zoom-in').addEventListener('click', () => map.zoomIn());
+document.getElementById('zoom-out').addEventListener('click', () => map.zoomOut());
+
+// Service Worker
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(reg => {
+        console.log('[App] Service Worker registrado');
+        statusEl.textContent = 'App lista offline';
+        statusEl.classList.add('visible');
+        setTimeout(() => statusEl.classList.remove('visible'), 2000);
+      })
+      .catch(err => console.warn('[App] SW error:', err));
+  });
+}
+</script>
+</body>
+</html>

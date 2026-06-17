@@ -179,7 +179,6 @@ function getFeatureInfo(latlng) {
   
   const sw = latLngToWebMercator(bounds.getSouth(), bounds.getWest());
   const ne = latLngToWebMercator(bounds.getNorth(), bounds.getEast());
-  const clickPoint = latLngToWebMercator(latlng.lat, latlng.lng);
   
   const bbox = `${sw[0]},${sw[1]},${ne[0]},${ne[1]}`;
   const width = 101;
@@ -194,30 +193,42 @@ function getFeatureInfo(latlng) {
   fetch(url)
     .then(res => res.text())
     .then(text => {
-      console.log('GetFeatureInfo response:', text);
+      console.log('GetFeatureInfo raw response:', text);
       
       // Parse la respuesta de texto plano
-      const pkMatch = text.match(/pk\s*=\s*([^\n]+)/);
-      const tramMatch = text.match(/nom_tramo\s*=\s*([^\n]+)/);
+      const lines = text.split('\n');
+      let pk = null;
+      let nom_tramo = null;
       
-      if (pkMatch && tramMatch) {
-        showPanel({
-          pk: pkMatch[1].trim(),
-          nom_tramo: tramMatch[1].trim()
-        });
+      for (let line of lines) {
+        if (line.includes('pk') && line.includes('=')) {
+          const match = line.match(/pk\s*=\s*(.+?)(?=\n|$)/);
+          if (match) pk = match[1].trim();
+        }
+        if (line.includes('nom_tramo') && line.includes('=')) {
+          const match = line.match(/nom_tramo\s*=\s*(.+?)(?=\n|$)/);
+          if (match) nom_tramo = match[1].trim();
+        }
+      }
+      
+      console.log('Parsed - PK:', pk, 'Tramo:', nom_tramo);
+      
+      if (pk && nom_tramo) {
+        showPanel({ pk, nom_tramo });
         statusEl.classList.remove('visible');
       } else {
         showStatus('No encontrado', 2000);
       }
     })
     .catch(err => {
-      console.error('Error:', err);
-      showStatus('Error', 2000);
+      console.error('GetFeatureInfo error:', err);
+      showStatus('Error en la búsqueda', 2000);
     });
 }
 
-// Click en el mapa
+// Click en el mapa - solo llamar getFeatureInfo
 map.on('click', (e) => {
+  closePanel();
   getFeatureInfo(e.latlng);
 });
 
@@ -237,7 +248,6 @@ function closePanel() {
 }
 
 document.getElementById('popup-close').onclick = closePanel;
-map.on('click', closePanel);
 
 function showPanel(p) {
   document.getElementById('pk-value').textContent = p.pk;

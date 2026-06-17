@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <title>PK AUSA WFS</title>
+  <title>PK AUSA WMS</title>
   <link rel="manifest" href="manifest.json">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
   <style>
@@ -14,7 +14,7 @@
     #root { display:flex; flex-direction:column; height:100vh; }
     #header { background:#0d1526; color:#fff; padding:12px 16px; display:flex; justify-content:space-between; align-items:center; box-shadow:0 2px 8px rgba(0,0,0,0.1); z-index:999; }
     #header-logo { display:flex; align-items:center; gap:8px; font-weight:700; font-size:16px; }
-    #header-logo img { height:32px; }
+    #header-logo svg { height:32px; }
     #header-title { color:#ffc107; font-size:14px; font-weight:700; letter-spacing:0.1em; }
     #map { flex:1; width:100%; position:relative; }
 
@@ -41,7 +41,6 @@
     .leaflet-popup { display:none !important; }
     .leaflet-control-container { display:none !important; }
 
-    /* Zoom buttons */
     #zoom-buttons {
       position:fixed;
       right:14px;
@@ -133,7 +132,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 const BLUE = '#0066ff';
-const GEOSERVER_WFS = 'https://maps.ausa.com.ar/geoserver/ausa/wfs';
+const WMS_URL = 'https://maps.ausa.com.ar/geoserver/wms';
 
 const map = L.map('map', { 
   center:[-34.65,-58.45], 
@@ -148,81 +147,86 @@ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map
   maxZoom:19
 }).addTo(map);
 
+// WMS layer
+const wmsLayer = L.tileLayer.wms(WMS_URL, {
+  layers: 'ausa:v_progresivas_mobile',
+  transparent: true,
+  format: 'image/png',
+  styles: 'ausa:sld_pk_mobile',
+  attribution: 'AUSA'
+}).addTo(map);
+
 let currentZoom = map.getZoom();
-const allMarkers = [];
-let selectedMarker = null;
-let locMarker, locCircle;
 const statusEl = document.getElementById('status');
+let locMarker, locCircle;
 
-// Circle styles
-const CIRCLE_STYLE = {
-  small: { radius:4, color:BLUE, fillColor:BLUE, fillOpacity:1, weight:0 },
-  medium: { radius:6, color:BLUE, fillColor:BLUE, fillOpacity:1, weight:0 },
-  large: { radius:8, color:BLUE, fillColor:BLUE, fillOpacity:1, weight:2, color:'#fff' },
-  selected: { radius:11, color:'#fff', fillColor:'#003388', fillOpacity:1, weight:3 }
-};
-
-function createMarker(latlng, properties) {
-  const m = L.circleMarker(latlng, CIRCLE_STYLE.medium);
-  
-  m.on('click', (e) => {
-    e.stopPropagation();
-    if (selectedMarker) {
-      selectedMarker.setStyle(CIRCLE_STYLE.medium);
-    }
-    selectedMarker = m;
-    m.setStyle(CIRCLE_STYLE.selected);
-    showPanel(properties);
-  });
-
-  m.addTo(map);
-  m.bringToFront();
-  allMarkers.push({ marker: m, properties });
-}
-
-function clearMarkers() {
-  allMarkers.forEach(({marker}) => map.removeLayer(marker));
-  allMarkers.length = 0;
-}
-
-// Fetch WFS data for current bbox
-function fetchWFSData() {
-  const bounds = map.getBounds();
-  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
-  const url = `${GEOSERVER_WFS}?service=WFS&version=2.0.0&request=GetFeature&typeName=ausa:v_progresivas_mobile_point&outputFormat=application/json&bbox=${bbox}`;
-  
-  statusEl.textContent = 'Cargando...';
+function showStatus(msg, timeout) {
+  statusEl.textContent = msg;
   statusEl.classList.add('visible');
+  if (timeout) setTimeout(() => statusEl.classList.remove('visible'), timeout);
+}
+
+// GetFeatureInfo con parámetros de MapStore
+function getFeatureInfo(latlng) {
+  const bounds = map.getBounds();
+  
+  // Convertir a EPSG:3857 (Web Mercator) como MapStore
+  function latLngToWebMercator(lat, lng) {
+    const x = lng * 20037508.34 / 180;
+    const y = Math.log(Math.tan((90 + lat) * Math.PI / 360)) * 20037508.34 / Math.PI;
+    return [x, y];
+  }
+  
+  const sw = latLngToWebMercator(bounds.getSouth(), bounds.getWest());
+  const ne = latLngToWebMercator(bounds.getNorth(), bounds.getEast());
+  const clickPoint = latLngToWebMercator(latlng.lat, latlng.lng);
+  
+  const bbox = `${sw[0]},${sw[1]},${ne[0]},${ne[1]}`;
+  const width = 101;
+  const height = 101;
+  const x = Math.round(width / 2);
+  const y = Math.round(height / 2);
+  
+  const url = `${WMS_URL}?service=WMS&version=1.1.1&request=GetFeatureInfo&layers=ausa:v_progresivas_mobile&query_layers=ausa:v_progresivas_mobile&styles=ausa:sld_pk_mobile&x=${x}&y=${y}&height=${height}&width=${width}&srs=EPSG:3857&bbox=${bbox}&feature_count=10&info_format=text/plain&format=image/png`;
+  
+  showStatus('Buscando...', 0);
   
   fetch(url)
-    .then(res => res.json())
-    .then(data => {
-      clearMarkers();
-      if (data.features) {
-        data.features.forEach(feature => {
-          const props = feature.properties;
-          const coords = feature.geometry.coordinates;
-          createMarker([coords[1], coords[0]], props);
+    .then(res => res.text())
+    .then(text => {
+      console.log('GetFeatureInfo response:', text);
+      
+      // Parse la respuesta de texto plano
+      const pkMatch = text.match(/pk\s*=\s*([^\n]+)/);
+      const tramMatch = text.match(/nom_tramo\s*=\s*([^\n]+)/);
+      
+      if (pkMatch && tramMatch) {
+        showPanel({
+          pk: pkMatch[1].trim(),
+          nom_tramo: tramMatch[1].trim()
         });
-        statusEl.textContent = `${data.features.length} PKs cargados`;
+        statusEl.classList.remove('visible');
+      } else {
+        showStatus('No encontrado', 2000);
       }
-      setTimeout(() => statusEl.classList.remove('visible'), 2000);
     })
     .catch(err => {
-      console.error('WFS error:', err);
-      statusEl.textContent = 'Error cargando datos';
-      setTimeout(() => statusEl.classList.remove('visible'), 3000);
+      console.error('Error:', err);
+      showStatus('Error', 2000);
     });
 }
+
+// Click en el mapa
+map.on('click', (e) => {
+  getFeatureInfo(e.latlng);
+});
 
 function updateZoom() {
   currentZoom = map.getZoom();
   document.getElementById('zoom-indicator-side').textContent = currentZoom;
-  fetchWFSData();
 }
 
 map.on('zoomend', () => { updateZoom(); closePanel(); });
-map.on('moveend', updateZoom);
 map.whenReady(updateZoom);
 
 // Panel
@@ -230,10 +234,6 @@ const panel = document.getElementById('popup-panel');
 
 function closePanel() {
   panel.classList.remove('visible');
-  if (selectedMarker) {
-    selectedMarker.setStyle(CIRCLE_STYLE.medium);
-    selectedMarker = null;
-  }
 }
 
 document.getElementById('popup-close').onclick = closePanel;
@@ -248,8 +248,7 @@ function showPanel(p) {
 // GPS
 document.getElementById('gps-btn').addEventListener('click', function() {
   this.classList.add('locating');
-  statusEl.textContent = 'Buscando ubicación...';
-  statusEl.classList.add('visible');
+  showStatus('Buscando ubicación...', 0);
   
   navigator.geolocation.getCurrentPosition(pos => {
     const {latitude:lat, longitude:lng} = pos.coords;
@@ -262,17 +261,15 @@ document.getElementById('gps-btn').addEventListener('click', function() {
         <circle cx="16" cy="12" r="10" fill="#E8C8C8" stroke="#D8A8A8" stroke-width="2"/>
       </svg>`,
       iconSize: [32, 50],
-      iconAnchor: [16, 50],
-      className: 'loc-lollipop'
+      iconAnchor: [16, 50]
     });
     locCircle = L.marker([lat,lng], {icon: locIcon}).addTo(map);
-    map.flyTo([lat,lng], 17, { animate:true, duration:1.8, easeLinearity:0.25 });
+    map.flyTo([lat,lng], 17, { animate:true, duration:1.8 });
     this.classList.remove('locating');
     statusEl.classList.remove('visible');
   }, () => {
     this.classList.remove('locating');
-    statusEl.textContent = 'No se pudo obtener ubicación';
-    setTimeout(() => statusEl.classList.remove('visible'), 3000);
+    showStatus('No se pudo obtener ubicación', 3000);
   }, {enableHighAccuracy:true, timeout:10000});
 });
 
@@ -284,13 +281,10 @@ document.getElementById('zoom-out').addEventListener('click', () => map.zoomOut(
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js')
-      .then(reg => {
-        console.log('[App] Service Worker registrado');
-        statusEl.textContent = 'App lista offline';
-        statusEl.classList.add('visible');
-        setTimeout(() => statusEl.classList.remove('visible'), 2000);
+      .then(() => {
+        showStatus('Instalado offline', 2000);
       })
-      .catch(err => console.warn('[App] SW error:', err));
+      .catch(() => {});
   });
 }
 </script>

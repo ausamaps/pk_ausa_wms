@@ -135,6 +135,7 @@ const BLUE = '#0066ff';
 const WMS_URL = 'https://maps.ausa.com.ar/geoserver/wms';
 
 const map = L.map('map', { 
+crs: L.CRS.EPSG3857, // or L.CRS.EPSG3857
   center:[-34.65,-58.45], 
   zoom:11, 
   zoomControl:true, 
